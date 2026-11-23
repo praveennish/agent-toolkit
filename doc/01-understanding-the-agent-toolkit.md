@@ -447,11 +447,120 @@ guardrail and router add?* A practical method:
 
 A ready-to-fill KPI table is in [`02-design.md` → KPIs](02-design.md#7-kpis--what-to-measure-and-why).
 
+### 4.6 How Kubernetes is used: Kubernetes vs Helm vs KServe vs KubeRay
+
+Readers often find this confusing because the four names sit at **different levels**. They are
+not alternatives to each other:
+
+> **Kubernetes is the platform. Helm is an installer. KServe, KubeRay and Agent Sandbox are
+> add-ons (operators) that teach Kubernetes new tricks.**
+
+#### The one idea that makes it click: operators
+
+Out of the box, Kubernetes understands only generic things:
+
+| Built-in object | Meaning |
+|---|---|
+| Pod | "Run this container" |
+| Deployment / StatefulSet | "Keep N copies of it running" (StatefulSet: with a stable name and its own disk) |
+| Service | "Give it a stable internal address" |
+| PersistentVolumeClaim | "Give it a disk" |
+| Secret / ConfigMap | "Give it passwords / settings" |
+
+Kubernetes does **not** know what an "AI model server", a "Ray cluster" or a "sandbox" is. So
+projects add two things:
+
+1. **A CRD (Custom Resource Definition)**: a new object type, e.g. `InferenceService`,
+   `RayCluster`, `SandboxWarmPool`.
+2. **An operator (controller)**: a program running inside the cluster that **watches** those
+   objects and creates the ordinary Pods and Services needed to make them real, then keeps fixing
+   things if they drift.
+
+You write a short description ("serve model X"; "a Ray cluster with 2–4 workers"; "keep 5 Python
+sandboxes ready"), and the operator does the many low-level steps.
+
+#### Each piece in one line
+
+| Piece | What it really is | When it acts | Analogy |
+|---|---|---|---|
+| **Kubernetes** | The platform that runs and heals containers across machines | Always | The building and its facilities manager |
+| **Helm** | A **package installer** for Kubernetes; a *chart* is a parameterised bundle of YAML | **Only at install time.** Nothing of Helm runs afterwards | The delivery truck that drops off furniture kits |
+| **Ansible** (the `roles/` in this repo) | The script that decides *what* to install, in which order, with which settings, and calls Helm or kubectl | Only during install / validate / teardown | The project manager with the checklist |
+| **KServe** | An **operator for model serving** (installed by the inference layer). You declare a model; it creates the vLLM pod, Service and routing | Runtime: keeps model servers alive | A specialist who sets up and runs the kitchens |
+| **KubeRay** | An **operator for Ray clusters**. You declare a `RayCluster`; it creates head and worker pods and autoscales them | Runtime (optional, off by default) | A specialist who staffs a team of helpers on demand |
+| **Agent Sandbox** | Also an **operator**, for sandbox pods (`Sandbox`, `SandboxTemplate`, `SandboxClaim`, `SandboxWarmPool`) | Runtime | A specialist who keeps disposable test rooms ready |
+
+So the stack has **three operators** (KServe, KubeRay, Agent Sandbox), all installed **with Helm
+or plain manifests**, all driven by **Ansible**, all running **on Kubernetes**.
+
+#### How they fit together in time
+
+```
+INSTALL TIME (once, or on every re-run of es_auto_installer.sh install)
+  es_auto_installer.sh
+    └─ Ansible role                (e.g. roles/kuberay/tasks/install.yaml)
+         └─ Helm installs a chart  ──►  objects stored in Kubernetes
+                                        (Deployments, Services, CRDs, and custom objects like RayCluster)
+
+RUN TIME (continuously, no Helm or Ansible involved)
+  Kubernetes runs everything; each operator watches "its" objects:
+    KServe operator          watches InferenceService / LLMInferenceService → vLLM pods       (ns llm-inference)
+    KubeRay operator         watches RayCluster                             → Ray head/workers (ns ray-system)
+    Agent Sandbox controller watches Sandbox / SandboxWarmPool / Claim      → sandbox pods     (ns agent-sandbox-system)
+  Plain charts without an operator (Redis, pgvector) → a StatefulSet + Service that Kubernetes keeps alive
+```
+
+#### Three concrete examples from the code
+
+**Redis is a Helm chart with no operator.** `roles/redis_stack/tasks/install.yaml` calls Helm with
+`charts/redis-stack`. Helm creates a StatefulSet, Service, Secret and NetworkPolicy. From then on,
+plain Kubernetes keeps the pod alive. Helm isn't involved again until the next install. pgvector
+works the same way.
+
+**KubeRay is a Helm chart that installs an operator, plus one custom object.**
+`roles/kuberay/tasks/install.yaml`:
+1. Helm installs the **KubeRay operator** (chart `kuberay/kuberay-operator`, version 1.3.0).
+2. Helm installs `charts/kuberay`, which contains **just one custom object**, a `RayCluster`
+   that says "1 head, 2 workers, autoscale between 1 and 4".
+3. From then on the **operator** creates, heals and scales the Ray pods. Helm has finished.
+
+**KServe works the same way for models, but it's installed by the inference layer**
+(enterprise-ai-solutions), not this repo. When you run `./model-manager deploy qwen2-5-coder-14b`,
+Helm creates an inference-service object; the **KServe operator** turns it into a running vLLM pod
+in namespace `llm-inference` with a Service behind the AI gateway. That's why the docs check models
+with:
+
+```bash
+kubectl get llminferenceservices,inferenceservices -n llm-inference
+```
+
+**Agent Sandbox** is installed with upstream YAML (not Helm) by `roles/agent_sandbox`. After that,
+its controller keeps the `python-pool` warm pool at 5 ready pods and hands one out for every
+`SandboxClaim`.
+
+#### Why use operators instead of plain Deployments?
+
+| Without an operator you would… | With the operator you get… |
+|---|---|
+| Hand-write each model's Deployment, Service, probes, routing and storage for weights | One short inference-service object; standard serving runtimes; uniform endpoints `/llm-inference/<model>/v1` |
+| Hand-manage Ray head and worker pods and their scaling | One `RayCluster`; the Ray autoscaler adds and removes workers (1–4) |
+| Hand-create sandbox pods and pre-warm them | `SandboxWarmPool` keeps 5 ready; a `SandboxClaim` hands one over instantly |
+
+#### One-sentence answer (interview-ready)
+
+> "Kubernetes is the runtime; Helm is just the installer that Ansible uses to put things on it.
+> KServe, KubeRay and Agent Sandbox are operators: each adds a custom resource (a model, a Ray
+> cluster, a sandbox) and keeps the right pods running for it. KServe serves the LLMs, KubeRay
+> runs parallel tool work, and Agent Sandbox runs untrusted code. Redis and pgvector are plain
+> Helm charts with no operator."
+
 > **Check yourself (Q4)**
 > 1. Why does the KV cache often need more memory than the model weights?
 > 2. What does "NUMA-aware pinning" protect against?
 > 3. The rack-scale storage test was NVMe-bound, not network-bound. How do the numbers show that?
 > 4. Which four request paths would you benchmark separately, and why?
+> 5. Helm, KServe and KubeRay: which one stops working after the install, and which keep running? Why?
+> 6. What is an operator, and which three operators does this stack use?
 
 ---
 
@@ -641,20 +750,22 @@ Three design ideas explain most of the system:
 | **AMX** | Advanced Matrix Extensions: matrix-multiply units in recent Xeon CPUs, used for bf16/int8 AI maths |
 | **bf16** | 16-bit floating-point format; half the memory of fp32 with similar range |
 | **ClusterIP** | A Kubernetes service reachable only inside the cluster |
+| **Controller / operator** | A program that watches custom resources and makes reality match them (here: KServe, KubeRay, Agent Sandbox) |
 | **CRD** | Custom Resource Definition: a new object type added to Kubernetes (e.g. `Sandbox`, `RayCluster`) |
-| **Controller / operator** | A program that watches custom resources and makes reality match them |
 | **Fail-closed** | When a check cannot decide, deny (safe default) |
+| **Helm** | Package installer for Kubernetes; acts only at install/upgrade time |
 | **Idempotent** | Running it twice gives the same result as running it once |
 | **Kata Containers** | Runs each pod inside a lightweight VM with its own kernel |
-| **KServe** | Kubernetes framework for serving ML models |
+| **KServe** | Kubernetes operator/framework for serving ML models (here: vLLM model services in `llm-inference`) |
+| **KubeRay** | Kubernetes operator that runs Ray clusters (`RayCluster` resource) |
 | **KV cache** | Stored attention keys and values for previous tokens during generation |
 | **Landlock** | Linux kernel feature that restricts which files a process may access |
 | **LiteLLM** | Open-source OpenAI-compatible proxy for many LLM providers |
 | **MCP** | Model Context Protocol: a standard for exposing tools to LLM agents |
 | **mTLS** | Mutual TLS: both sides prove their identity with certificates |
 | **NetworkPolicy** | Kubernetes firewall rules between pods |
-| **NUMA** | Non-Uniform Memory Access: each CPU socket/node has "near" memory; remote memory is slower |
 | **NRI balloons** | A Kubernetes node-resource plugin policy that pins containers to sets of CPU cores |
+| **NUMA** | Non-Uniform Memory Access: each CPU socket/node has "near" memory; remote memory is slower |
 | **Provider Design Pattern** | Each block defines *what* it does (contract); the *how* (provider) can be swapped |
 | **TokenReview** | Kubernetes API that verifies a ServiceAccount token |
 | **TP** | Tensor parallelism: one model split across several workers |
