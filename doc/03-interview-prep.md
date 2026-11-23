@@ -2064,6 +2064,6 @@ Cover the right column and answer.
 
 ---
 
-*Companion documents: [`01-understanding-the-agent-toolkit.md`](01-understanding-the-agent-toolkit.md)
+*Companion documents: [`04-code-walkthrough.md`](04-code-walkthrough.md) (code, file by file), [`01-understanding-the-agent-toolkit.md`](01-understanding-the-agent-toolkit.md)
 (concepts from zero), [`02-design.md`](02-design.md) (design and KPIs), [`adr/`](adr/README.md)
 (decisions), [`diagrams/`](diagrams/) (architecture, component, sequence).*

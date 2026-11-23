@@ -15,6 +15,7 @@ roles, Helm charts and Docker files. Interpretations are clearly labelled.
 | 3 | [`02-design.md`](02-design.md) | Comprehensive design: architecture, component design, flows, deployment, security, KPIs, risks | 60 min |
 | 4 | [`adr/`](adr/README.md) | 12 Architecture Decision Records: the *why* behind the design | 45 min |
 | 5 | [`03-interview-prep.md`](03-interview-prep.md) | Complete interview guide: knowledge base with code, 164 Q&As, 5 worked system designs, 22 debugging cases, critique, flashcards, mock rounds | 1–2 days |
+| 6 | [`04-code-walkthrough.md`](04-code-walkthrough.md) | File-by-file walkthrough of the code in execution order, with `file:line` references, trace exercises and findings | 2–3 h |
 
 ## Diagrams
 
@@ -23,11 +24,13 @@ roles, Helm charts and Docker files. Interpretations are clearly labelled.
 | Architecture (layered view) | [`diagrams/architecture.png`](diagrams/architecture.png) |
 | Component (namespaces, ports, interfaces) | [`diagrams/component.png`](diagrams/component.png) |
 | Sequence (one agent task end to end) | [`diagrams/sequence.png`](diagrams/sequence.png) |
+| Code map: Kubernetes path (installer → preflight → registry → roles → charts) | [`diagrams/code-map-kubernetes.png`](diagrams/code-map-kubernetes.png) |
+| Code map: Docker path (`deploy.sh` steps and generators) | [`diagrams/code-map-docker.png`](diagrams/code-map-docker.png) |
 
 The diagrams are generated from code so they can be edited and re-rendered:
 
 ```bash
-cd doc/diagrams/src && python3 build_diagrams.py && node render.js
+cd doc/diagrams/src && python3 build_diagrams.py && python3 build_code_maps.py && node render.js
 ```
 
 (`render.js` needs Node.js with Playwright and Chromium.)
