@@ -14,7 +14,7 @@ roles, Helm charts and Docker files. Interpretations are clearly labelled.
 | 2 | [`diagrams/`](diagrams/) | Architecture, component and sequence diagrams (PNG) | 15 min |
 | 3 | [`02-design.md`](02-design.md) | Comprehensive design: architecture, component design, flows, deployment, security, KPIs, risks | 60 min |
 | 4 | [`adr/`](adr/README.md) | 12 Architecture Decision Records: the *why* behind the design | 45 min |
-| 5 | [`03-interview-prep.md`](03-interview-prep.md) | Pitches, cheat sheet, 35 Q&As by level, system design, debugging scenarios, study plan | 2–3 h |
+| 5 | [`03-interview-prep.md`](03-interview-prep.md) | Complete interview guide: knowledge base with code, 164 Q&As, 5 worked system designs, 22 debugging cases, critique, flashcards, mock rounds | 1–2 days |
 
 ## Diagrams
 
