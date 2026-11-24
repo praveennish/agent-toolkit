@@ -598,6 +598,8 @@ See [ADR-009](adr/ADR-009-defense-in-depth-network-and-mesh.md).
 
 ## 7. KPIs — what to measure and why
 
+> What the repository measures **today** (readiness and health only), the gaps, and where each new KPI belongs are in [`improvement.md`](improvement.md).
+
 KPIs are grouped by the question they answer. **Source** says where the target comes from:
 **Doc** = stated in the repository; **(proposed)** = a sensible starting target to confirm by
 measurement.
