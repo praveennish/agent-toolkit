@@ -6,7 +6,7 @@ const path = require('path');
 
 (async () => {
   const browser = await chromium.launch();
-  for (const name of ['architecture', 'component', 'sequence', 'code-map-kubernetes', 'code-map-docker']) {
+  for (const name of ['architecture', 'component', 'sequence', 'code-map-kubernetes', 'code-map-docker', 'data-model']) {
     const svgPath = path.join(__dirname, `${name}.svg`);
     const svg = fs.readFileSync(svgPath, 'utf8');
     const w = parseInt(svg.match(/width="(\d+)"/)[1], 10);

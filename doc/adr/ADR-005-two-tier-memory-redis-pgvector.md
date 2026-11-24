@@ -40,6 +40,8 @@ Both are on by default.
 
 ## Evidence in the repository
 
+- Full schema and access patterns: [`02-design.md` §3.12](../02-design.md#312-data-model-redis-postgresql-and-pgvector) and [`diagrams/data-model.png`](../diagrams/data-model.png).
+
 - `roles/redis_stack/*`, `charts/redis-stack/*` (NetworkPolicy with HBONE port 15008).
 - `roles/pgvector/*`, `charts/pgvector/*`.
 - `docs/backend-connection-reference.md`, `docs/single-node-deployment.md` Steps 2 / 2b.

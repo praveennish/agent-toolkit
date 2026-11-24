@@ -345,6 +345,111 @@ Failure handling · Security.**
   endpoint is unauthenticated); afterwards `DENYLIST_URLS` closes it.
 - See [ADR-010](adr/ADR-010-kubernetes-for-production-docker-for-development.md).
 
+### 3.12 Data model: Redis, PostgreSQL and pgvector
+
+![Data model](diagrams/data-model.png)
+
+This section records exactly what the repository **defines** for data. Where something isn't
+defined here, it says who owns it.
+
+#### 3.12.1 Redis Stack: no schema, access only
+
+Redis is a key-value store (with the **RediSearch** module for indexing and vector search). The
+repository defines **no keys, no key naming convention and no search indexes**. Redis starts empty,
+and each agent chooses its own layout. What the repository does define is **who can connect**:
+
+| | Kubernetes (`charts/redis-stack`, `roles/redis_stack`) | Docker (`docker/deploy.sh` → `redis/acl.conf`) |
+|---|---|---|
+| Instance | StatefulSet `redis-stack-server`, 1 replica, ns `redis`, 10 Gi PVC | Container `agentic-redis`, shared by all services |
+| Authentication | Built-in `default` user + password via `--requirepass` (the chart **refuses to render** without a password) | `default` user **disabled**; users `admin`, `litellm`, `flowise`, `langfuse`, passwords stored as SHA-256 |
+| Connection | Secret `redis-stack-server-credentials` → `REDIS_URL = redis://default:<pw>@redis-stack-server.redis.svc.cluster.local:6379` | `redis://<user>:<pw>@redis:6379` from `docker/.env` |
+| Network | ClusterIP; NetworkPolicy on 6379 (+ Istio HBONE 15008) | Published on host port 6379 |
+| Intended use | Agents: session state, short-term memory, semantic cache | LiteLLM routing cache, Flowise job queue, Langfuse events, agents/RAG |
+| Validation | `PING` → `PONG`; `MODULE LIST` contains `search` | Healthcheck `redis-cli --user admin … ping` |
+
+**(proposed)** A key convention for agents, so tenants and features don't collide:
+`<tenant>:<agent_id>:session:<session_id>` (hash, TTL), `<tenant>:<agent_id>:cache:<sha>` (string or
+JSON, TTL), and RediSearch index names prefixed by tenant. On Docker, add key-prefix ACLs
+(`~litellm:*` …) so service users can't read each other's data: today every user has
+`~* &* +@all`.
+
+#### 3.12.2 PostgreSQL + pgvector on Kubernetes: the agent schema
+
+`charts/pgvector/templates/configmap.yaml` is mounted at `/docker-entrypoint-initdb.d`, so it runs
+**once**, when the data directory is first initialised. Database `agentdb`, owner `agentuser`,
+service `pgvector.pgvector.svc.cluster.local:5432`, Secret `pgvector-credentials`
+(`DATABASE_URL`).
+
+**`01-init-extensions.sql`** enables `vector` and grants `agentuser` all privileges on the
+database, on schema `public`, and by default on future tables and sequences.
+
+**`02-create-agent-tables.sql`** (runs as `agentuser` via `SET ROLE`):
+
+| Table | Purpose | Columns | Indexes |
+|---|---|---|---|
+| `agent_memory` | Long-term memory, searched by meaning | `id BIGSERIAL PK`, `agent_id TEXT NOT NULL`, `user_id TEXT NOT NULL DEFAULT 'default'`, `session_id TEXT`, `content TEXT NOT NULL`, `embedding VECTOR(1536)`, `metadata JSONB NOT NULL DEFAULT '{}'`, `created_at`, `updated_at TIMESTAMPTZ DEFAULT NOW()` | HNSW `(embedding vector_cosine_ops)` with `m = 16, ef_construction = 64`; B-tree `(agent_id, user_id)` |
+| `agent_events` | Audit log of every action, tool call or LLM response | `id BIGSERIAL PK`, `agent_id`, `user_id`, `session_id`, `event_type TEXT NOT NULL`, `payload JSONB`, `duration_ms INTEGER`, `created_at` | B-tree `(agent_id, session_id, created_at DESC)` |
+| `agent_cache` | Persistent cache of tool results and LLM responses | `id BIGSERIAL PK`, `cache_key TEXT NOT NULL UNIQUE`, `embedding VECTOR(1536)`, `value JSONB NOT NULL`, `hit_count INTEGER DEFAULT 0`, `expires_at TIMESTAMPTZ`, `created_at` | HNSW `(embedding vector_cosine_ops)`; unique `cache_key` |
+
+There are **no foreign keys**: `agent_id`, `user_id` and `session_id` are logical links between the
+tables.
+
+**Access patterns the schema supports:**
+
+```sql
+-- remember
+INSERT INTO agent_memory (agent_id, user_id, session_id, content, embedding, metadata) VALUES ($1,$2,$3,$4,$5,$6);
+-- recall: k nearest memories for this agent and user (cosine distance)
+SELECT content, metadata FROM agent_memory
+ WHERE agent_id = $1 AND user_id = $2
+ ORDER BY embedding <=> $3 LIMIT 5;
+-- audit a tool call
+INSERT INTO agent_events (agent_id, session_id, event_type, payload, duration_ms)
+VALUES ($1, $2, 'tool_call', $3, $4);
+-- exact cache hit
+SELECT value FROM agent_cache WHERE cache_key = $1 AND (expires_at IS NULL OR expires_at > NOW());
+-- semantic cache: nearest previous request, reuse below a distance threshold
+SELECT value, embedding <=> $1 AS distance FROM agent_cache ORDER BY embedding <=> $1 LIMIT 1;
+UPDATE agent_cache SET hit_count = hit_count + 1 WHERE cache_key = $2;
+```
+
+📚 HNSW is an approximate nearest-neighbour graph index. `m` (links per node) and
+`ef_construction` (build-time candidate list) trade recall against memory and build time; query-time
+recall is tuned with `SET hnsw.ef_search`. The values used (16 / 64) are pgvector's defaults.
+
+#### 3.12.3 PostgreSQL on Docker: databases per service
+
+`docker/deploy.sh` writes `postgres/init.sql`, which runs once on an empty `postgres-data` volume in
+the shared `agentic-postgres` container (`pgvector/pgvector:pg16`):
+
+| Database | Owner | Contents defined by |
+|---|---|---|
+| `litellm` | `litellm` | LiteLLM (its own migrations: keys, budgets, spend, models, guardrails) |
+| `flowisedb` | `flowise` | Flowise |
+| `langfuse` | `langfuse` | Langfuse (traces themselves go to ClickHouse in the Docker path) |
+| `agentdb` | `agentuser` | **Only** `CREATE EXTENSION vector`: no agent tables |
+
+`REVOKE CONNECT ON DATABASE … FROM PUBLIC` restricts each user to its own database.
+
+#### 3.12.4 Schemas not defined in this repository
+
+| Database | Owner |
+|---|---|
+| LiteLLM's database (Kubernetes) | Platform PostgreSQL (platform layer); schema migrated by LiteLLM |
+| Langfuse (Kubernetes) | Inference layer; schema managed by Langfuse |
+
+#### 3.12.5 Data-model risks and proposed fixes
+
+| # | Risk | Evidence | Proposed fix |
+|---|---|---|---|
+| D1 | `VECTOR(1536)` doesn't match the bundled `bge-base-en` (768-d, 📚 model card), so local-model inserts fail | init SQL vs model catalog | `pgvector_embedding_dim` value rendered into the SQL, or one table per embedding model; record the model name in `metadata` |
+| D2 | Agent tables exist on Kubernetes but not in Docker | `deploy.sh` init.sql | Reuse the same `02-create-agent-tables.sql` in both paths |
+| D3 | Init SQL runs only on first start; no migration path for schema changes | `docker-entrypoint-initdb.d` semantics | Versioned migrations (e.g. a migration job per release) |
+| D4 | Single instance, no backup job, no password rotation | charts, docs | Operator with replicas + PITR backups; rotation runbook |
+| D5 | Teardown deletes the namespace, so the PVC and its data go too | `teardown.yaml` | `retain_data` flag; document backup before teardown |
+| D6 | Docker Redis users share all keys | `acl.conf` `~*` | Key-prefix ACLs per service |
+| D7 | `agent_events` and `agent_cache` grow without bound | no retention or partitioning | Time-based partitioning or retention job; purge expired cache rows |
+
 ---
 
 ## 4. Key runtime flows
@@ -618,7 +723,7 @@ measurement.
 | [ADR-002](adr/ADR-002-litellm-single-gateway.md) | LiteLLM as the single OpenAI-compatible gateway with virtual keys |
 | [ADR-003](adr/ADR-003-cpu-first-inference-on-xeon.md) | CPU-first inference with vLLM on Xeon; GPU/cloud optional |
 | [ADR-004](adr/ADR-004-hybrid-router-classifier-plus-bandit.md) | Hybrid Router: rules classifier + per-tier bandit, mounted without image rebuild |
-| [ADR-005](adr/ADR-005-two-tier-memory-redis-pgvector.md) | Two-tier memory: Redis (short-term) + pgvector (long-term) |
+| [ADR-005](adr/ADR-005-two-tier-memory-redis-pgvector.md) | Two-tier memory: Redis (short-term) + pgvector (long-term); schema in §3.12 |
 | [ADR-006](adr/ADR-006-agent-sandbox-with-warm-pools.md) | Agent Sandbox with router-only K8s access, TokenReview and warm pools |
 | [ADR-007](adr/ADR-007-layered-isolation-kata-openshell.md) | Opt-in stronger isolation: Kata microVMs and OpenShell |
 | [ADR-008](adr/ADR-008-fail-closed-guardrail.md) | Fail-closed content-safety guardrail on `pre_call` |

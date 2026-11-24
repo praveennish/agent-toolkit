@@ -26,11 +26,12 @@ roles, Helm charts and Docker files. Interpretations are clearly labelled.
 | Sequence (one agent task end to end) | [`diagrams/sequence.png`](diagrams/sequence.png) |
 | Code map: Kubernetes path (installer → preflight → registry → roles → charts) | [`diagrams/code-map-kubernetes.png`](diagrams/code-map-kubernetes.png) |
 | Code map: Docker path (`deploy.sh` steps and generators) | [`diagrams/code-map-docker.png`](diagrams/code-map-docker.png) |
+| Data model (Redis, pgvector tables, Docker databases) | [`diagrams/data-model.png`](diagrams/data-model.png) |
 
 The diagrams are generated from code so they can be edited and re-rendered:
 
 ```bash
-cd doc/diagrams/src && python3 build_diagrams.py && python3 build_code_maps.py && node render.js
+cd doc/diagrams/src && python3 build_diagrams.py && python3 build_code_maps.py && python3 build_data_model.py && node render.js
 ```
 
 (`render.js` needs Node.js with Playwright and Chromium.)

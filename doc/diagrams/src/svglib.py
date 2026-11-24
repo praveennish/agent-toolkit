@@ -35,10 +35,12 @@ ARROW_COLOURS = {
 
 
 class SVG:
-    def __init__(self, width, height, bg="#FFFFFF"):
+    def __init__(self, width, height, bg="#FFFFFF", preserve_space=False):
         self.w, self.h = width, height
         self.parts = []
         self.bg = bg
+        # keep leading/multiple spaces in text (used for aligned code-like lines)
+        self.preserve_space = preserve_space
 
     # ---------- primitives ----------
     def rect(self, x, y, w, h, fill, stroke, rx=10, sw=1.5, dash=None, opacity=1.0):
@@ -125,7 +127,11 @@ class SVG:
         )
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.w}" height="{self.h}" '
-            f'viewBox="0 0 {self.w} {self.h}"><defs>{markers}</defs>'
+            f'viewBox="0 0 {self.w} {self.h}"'
+            # no ligatures: keeps operators such as <=> and -> rendered literally
+            + (' style="font-variant-ligatures: none; white-space: pre"' if self.preserve_space
+               else ' style="font-variant-ligatures: none"')
+            + f'><defs>{markers}</defs>'
             f'<rect x="0" y="0" width="{self.w}" height="{self.h}" fill="{self.bg}"/>'
             + "".join(self.parts)
             + "</svg>"
