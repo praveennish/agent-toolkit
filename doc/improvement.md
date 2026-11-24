@@ -7,6 +7,8 @@
 > **Labels:** facts about the repo cite files. 📚 = general industry knowledge, to verify against the
 > exact component versions. (proposed) = a suggestion, not something that exists.
 >
+> **How to build it:** [`improvement-implementation.md`](improvement-implementation.md) (code, queries, alerts, tests, PR plan).
+>
 > Related: [`02-design.md` §7](02-design.md#7-kpis--what-to-measure-and-why) (target KPIs),
 > [`03-interview-prep.md` Part F](03-interview-prep.md#part-f--critique-weaknesses-and-improvements)
 > (broader critique).

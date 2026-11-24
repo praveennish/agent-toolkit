@@ -17,6 +17,7 @@ roles, Helm charts and Docker files. Interpretations are clearly labelled.
 | 5 | [`03-interview-prep.md`](03-interview-prep.md) | Complete interview guide: knowledge base with code, 164 Q&As, 5 worked system designs, 22 debugging cases, critique, flashcards, mock rounds | 1–2 days |
 | 6 | [`04-code-walkthrough.md`](04-code-walkthrough.md) | File-by-file walkthrough of the code in execution order, with `file:line` references, trace exercises and findings | 2–3 h |
 | 7 | [`improvement.md`](improvement.md) | Audit of what is measured today vs gaps, 11 proposed KPIs with owner layer and advantages, rollout plan, and a 2-minute interview narration | 30 min |
+| 8 | [`improvement-implementation.md`](improvement-implementation.md) | How to implement the KPIs: files to change per layer, Ansible/Helm/PromQL/alert code, mesh and NetworkPolicy caveats, tests, PR plan | 60 min |
 
 ## Diagrams
 
