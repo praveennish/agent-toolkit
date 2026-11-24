@@ -79,6 +79,21 @@ platform layer's generic monitoring.
 
 ---
 
+
+> **Update after reading the inference and platform repositories** (`intel/enterprise-inference`
+> `723fe6e`, `praveennish/toolkit-manager` `4803d3a`): the finding above is true for **this**
+> repository, but other layers already do part of the work:
+>
+> | KPI | Status in other layers | Remaining gap |
+> |---|---|---|
+> | #1 vLLM metrics | **Done:** ServiceMonitor `vllm-cpu` across all namespaces (`enterprise-inference: roles/llm_services/files/servicemonitors/vllm-cpu.yaml`) and a Grafana dashboard (`…/files/dashboards/vllm-cpu.json`) | **No alert rules** for vLLM (PrometheusRules exist only for vLLM-SR and Valkey) |
+> | #3 Gateway | LiteLLM's chart has a ServiceMonitor, but it is **off by default** (`enterprise-inference: charts/litellm-helm/values.yaml:379–380`) and the `litellm` role doesn't enable it | Turn it on; add alerts |
+> | Platform | Prometheus discovers monitors in **all** namespaces; Grafana loads any ConfigMap labelled `grafana_dashboard: "1"` (`toolkit-manager: roles/observability/tasks/install_helm.yaml:167–170`, `:209`) | Nothing: new monitors just work |
+>
+> So for #1 the work is **alerts and SLOs**, not collection. Everything else below stands.
+
+---
+
 ## 3. What is measured today
 
 ### 3.1 Before install: preflight (`playbooks/preflight/*.yml`)

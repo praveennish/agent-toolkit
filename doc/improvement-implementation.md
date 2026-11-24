@@ -12,6 +12,15 @@
 > (vLLM, LiteLLM, Prometheus Operator, kube-state-metrics, exporters). Metric names, flags and
 > labels vary between versions, so **every 📚 item has a "verify" command; run it first**.
 
+> **Verified against `toolkit-manager` and `enterprise-inference`.** Three simplifications apply:
+> 1. Prometheus already discovers ServiceMonitors and PodMonitors in **all namespaces**, with no
+>    selector labels needed (`toolkit-manager: roles/observability/tasks/install_helm.yaml:167–170`),
+>    so `monitoring_selector_labels` below can stay empty.
+> 2. Grafana loads ConfigMaps labelled `grafana_dashboard: "1"` (`…install_helm.yaml:209`), as assumed.
+> 3. **§2 (vLLM scraping and dashboard) already exists** in `enterprise-inference: roles/llm_services`
+>    (ServiceMonitor `vllm-cpu`, dashboard `vllm-cpu.json`). Only the **PrometheusRule alerts** in §2
+>    are new work. The LiteLLM ServiceMonitor (§5.2) exists in its chart but is off by default.
+
 ## Contents
 
 0. [Before writing any code: four checks](#0-before-writing-any-code-four-checks)
