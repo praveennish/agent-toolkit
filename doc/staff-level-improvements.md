@@ -401,6 +401,17 @@ escalation rate.
 
 ## Improvement 3 — Know who is acting, what they may do, and screen what tools return
 
+![Improvement 3: an indirect prompt injection today, the identity chain after, the guard change, and gap→proof→fix](diagrams/improvement3.png)
+
+*Read the diagram top to bottom.*
+- **A (today):** a hidden instruction inside a tool result reaches the model, because the guard
+  re-screens only the user's question. With no tool-permission check, the harmful call runs. The
+  attack text is an illustrative example built on the real guard logic.
+- **B (after):** one identity (tenant, user, agent) is carried through eight checkpoints. The
+  same attack now fails twice: the guard sees the tool result, and the tool policy denies the call.
+- **C:** the guard change keeps one call per request but screens the newest *untrusted* message.
+- **D:** each of the six gaps with its proof and fix.
+
 ### 🧩 In plain words
 
 Agents **do things**: run code, call APIs, write data. A company asks: *"For which user? Is it
