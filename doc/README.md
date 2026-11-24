@@ -18,6 +18,7 @@ roles, Helm charts and Docker files. Interpretations are clearly labelled.
 | 6 | [`04-code-walkthrough.md`](04-code-walkthrough.md) | File-by-file walkthrough of the code in execution order, with `file:line` references, trace exercises and findings | 2–3 h |
 | 7 | [`improvement.md`](improvement.md) | Audit of what is measured today vs gaps, 11 proposed KPIs with owner layer and advantages, rollout plan, and a 2-minute interview narration | 30 min |
 | 8 | [`improvement-implementation.md`](improvement-implementation.md) | How to implement the KPIs: files to change per layer, Ansible/Helm/PromQL/alert code, mesh and NetworkPolicy caveats, tests, PR plan | 60 min |
+| 9 | [`staff-level-improvements.md`](staff-level-improvements.md) | Five strategic improvements in simple language, each with repo proof (`file:line`), a fix, Python/Java pseudocode, success measures and interview answers | 60 min |
 
 ## Diagrams
 
