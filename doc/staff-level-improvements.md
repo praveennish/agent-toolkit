@@ -143,6 +143,16 @@ production quickly.** Measured against that job:
 
 ## Improvement 1 — Stop scattering a conversation across models
 
+![Improvement 1: today vs after, the new router logic, the measurement gate and Xeon strengths](diagrams/improvement1.png)
+
+*Read the diagram top to bottom.*
+- **A (today):** the same five-turn conversation changes model three times. Every change is a cold
+  re-read, and a 30B model ends up answering "thanks".
+- **B (after):** one deliberate escalation, a warm cache everywhere else, and a clean learning
+  signal.
+- **C:** the new decision logic inside the router hook.
+- **D:** the go/no-go measurement (step 1) and the Xeon-specific ideas (step 5).
+
 ### 🧩 In plain words
 
 A model builds a **KV cache**, short-term memory of what it has read. With prefix caching, the next
@@ -184,8 +194,10 @@ turn 7  bandit explores within COMPLEX  → another model                       
    first token after a change? If small, stop.
 2. **Classify the newest turn, not the whole history.** Keep a running "session tier" that can only
    go **up**.
-3. **Sticky model per session.** Stay on the session's model unless the new turn needs a higher
-   tier. Never bounce back down.
+3. **Sticky model per session.** Stay on the session's pinned model **as long as it is still a
+   candidate for the session tier** (the router's existing `get_candidates()`,
+   `enterprise-inference: …/hybrid_router/hybrid_router.py:206`). Switch only when it can't serve
+   the tier, which can happen only on the way **up**. Never bounce back down.
 4. **Clean the learning signal.** Feed the bandit only turns that didn't switch model, or record
    whether the cache was warm.
 5. **Play to Xeon's strengths.**
@@ -227,21 +239,24 @@ async def async_pre_routing_hook(self, model, request_kwargs, messages=None, inp
     last_user, system_prompt = latest_user_turn(messages), system_text(messages)   # NOT all turns joined
     session_id = (request_kwargs.get("metadata") or {}).get("session_id")          # 📚 sent by the agent
 
-    tier, _score, _signals = self._router.classify(last_user, system_prompt)        # existing classifier
-    tier_name = tier.value
+    turn_tier, _score, _signals = self._router.classify(last_user, system_prompt)   # step 2: newest turn only
 
     pinned = self._sessions.get(session_id) if session_id else None                 # Redis in production
-    if pinned and TIER_ORDER.index(tier_name) <= TIER_ORDER.index(pinned["tier"]):
-        chosen, tier_name, switched = pinned["model"], pinned["tier"], False        # stay: cache is warm
+    session_tier = turn_tier
+    if pinned and TIER_ORDER.index(pinned["tier"]) > TIER_ORDER.index(turn_tier.value):
+        session_tier = ComplexityTier(pinned["tier"])                               # step 2: never goes down
+
+    if pinned and pinned["model"] in self._router.get_candidates(session_tier):      # step 3 (hybrid_router.py:206)
+        chosen, switched = pinned["model"], False                                   # stay: KV cache is warm
     else:
-        chosen = self._router.pick_model(tier)                                       # existing bandit
-        switched = bool(pinned)
-        if session_id:
-            self._sessions.set(session_id, {"tier": tier_name, "model": chosen}, ttl=1800)
+        chosen = self._router.pick_model(session_tier)                               # existing bandit
+        switched = bool(pinned)                                                     # a real model change
+    if session_id:
+        self._sessions.set(session_id, {"tier": session_tier.value, "model": chosen}, ttl=1800)
 
     call_id = request_kwargs.get("litellm_call_id", "")
     with self._lock:
-        self._in_flight[call_id] = _RequestState(tier=tier, model=chosen, t0=time.perf_counter())
+        self._in_flight[call_id] = _RequestState(tier=session_tier, model=chosen, t0=time.perf_counter())
         self._switched[call_id] = switched                                           # used below
     return PreRoutingHookResponse(model=chosen, messages=messages)
 
